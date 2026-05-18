@@ -11,3 +11,4 @@ python-dotenv
 dj-database-url
 whitenoise
 psycopg2-binary
+python-3.13.5
