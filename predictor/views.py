@@ -1,205 +1,73 @@
-import os
-import joblib
-import pandas as pd
-import folium
-import requests
-import polyline
-import datetime
-from dotenv import load_dotenv
+import json
+
+from django.http import JsonResponse
 from django.shortcuts import render
-from django.conf import settings
+from django.views.decorators.http import require_POST
 
-# 1. LOAD Environment Variables
-load_dotenv()
+from .services import GOOGLE_API_KEY, predict_route
 
-# 2. LOAD trained model and scaler
-MODEL_PATH = os.path.join(settings.BASE_DIR, 'traffic_model.pkl')
-SCALER_PATH = os.path.join(settings.BASE_DIR, 'scaler.pkl')
 
-try:
-    model = joblib.load(MODEL_PATH)
-    scaler = joblib.load(SCALER_PATH)
-except Exception as e:
-    print(f"⚠️ Model Loading Error: {e}")
+def _form_params(post_data):
+    return {
+        'from_lat': post_data.get('from_lat', -1.279),
+        'from_lon': post_data.get('from_lon', 36.817),
+        'to_lat': post_data.get('to_lat'),
+        'to_lon': post_data.get('to_lon'),
+        'school_impact': post_data.get('school_impact'),
+        'avoid_expressway': post_data.get('avoid_expressway'),
+        'timing_mode': post_data.get('timing_mode', 'now'),
+        'hour': post_data.get('hour', 8),
+        'day': post_data.get('day', 0),
+        'rain': post_data.get('rain', 0.0),
+    }
 
-# 3. API KEYS
-GOOGLE_API_KEY = os.getenv('GOOGLE_MAPS_API_KEY', '')
-OPENWEATHER_API_KEY = os.getenv('OPENWEATHER_API_KEY', '')
 
 def predict_traffic(request):
     if request.method == 'POST':
         try:
-            to_lat_raw = request.POST.get('to_lat')
-            to_lon_raw = request.POST.get('to_lon')
-
-            if not to_lat_raw or not to_lon_raw:
+            if not request.POST.get('to_lat') or not request.POST.get('to_lon'):
                 return render(request, 'predictor/index.html', {
                     'error': "Missing destination coordinates. Please select a valid location from the dropdown.",
-                    'google_key': GOOGLE_API_KEY
+                    'google_key': GOOGLE_API_KEY,
                 })
 
-            from_lat = float(request.POST.get('from_lat', -1.279))
-            from_lon = float(request.POST.get('from_lon', 36.817))
-            to_lat = float(to_lat_raw)
-            to_lon = float(to_lon_raw)
-            
-            school_impact = 1 if request.POST.get('school_impact') else 0
-            avoid_expressway = True if request.POST.get('avoid_expressway') else False
-            timing_mode = request.POST.get('timing_mode', 'now')
-
-            if timing_mode == 'now':
-                now = datetime.datetime.now()
-                hour = now.hour
-                day = now.weekday() 
-                temp_c = 22.0 
-                rain_mm = 0.0 
-                
-                if OPENWEATHER_API_KEY:
-                    weather_url = f"https://api.openweathermap.org/data/2.5/weather?lat={from_lat}&lon={from_lon}&appid={OPENWEATHER_API_KEY}&units=metric"
-                    try:
-                        w_res = requests.get(weather_url, timeout=3).json()
-                        temp_c = w_res.get('main', {}).get('temp', 22.0)
-                        rain_dict = w_res.get('rain', {})
-                        rain_mm = rain_dict.get('1h', 0.0)
-                    except:
-                        pass 
-            else:
-                hour = int(request.POST.get('hour', 8))
-                day = int(request.POST.get('day', 0))
-                rain_mm = float(request.POST.get('rain', 0.0))
-                temp_c = 22.0 
-
-            matatu_stop_count = 5 
-            places_url = f"https://maps.googleapis.com/maps/api/place/nearbysearch/json?location={to_lat},{to_lon}&radius=2000&type=transit_station&key={GOOGLE_API_KEY}"
-            try:
-                p_res = requests.get(places_url, timeout=3).json()
-                if p_res.get('status') == 'OK':
-                    found_stops = len(p_res.get('results', []))
-                    if found_stops > 0:
-                        matatu_stop_count = found_stops
-            except:
-                pass
-
-            is_weekend = 1 if day >= 5 else 0
-            is_peak_hour = 1 if hour in [7, 8, 9, 16, 17, 18, 19] else 0
-            
-            data = {
-                'from_lat': from_lat,
-                'from_lon': from_lon,
-                'to_lat': to_lat,
-                'to_lon': to_lon,
-                'matatu_stop_count': matatu_stop_count, 
-                'is_inbound': 1,
-                'hour': hour,
-                'day_of_week_enc': day,
-                'is_weekend': is_weekend,
-                'is_peak_hour': is_peak_hour,
-                'school_impact': school_impact, 
-                'avg_rain_mm': rain_mm,         
-                'avg_temp_c': temp_c            
-            }
-
-            # --- AI PREDICTION LOGIC ---
-            input_df = pd.DataFrame([data])
-            scaled_data = scaler.transform(input_df)
-            
-            # (Fixing the Scikit-Learn Warning for Render)
-            scaled_df = pd.DataFrame(scaled_data, columns=input_df.columns)
-            
-            prediction_num = model.predict(scaled_df)[0]
-            probabilities = model.predict_proba(scaled_df)[0]
-            confidence_score = max(probabilities) * 100 
-
-            labels = {0: 'Clear', 1: 'Moderate', 2: 'Heavy', 3: 'Severe'}
-            colors = {0: '#10b981', 1: '#f59e0b', 2: '#f97316', 3: '#ef4444'} 
-            
-            prediction_text = labels.get(prediction_num, 'Unknown')
-            line_color = colors.get(prediction_num, '#3b82f6')
-
-            # --- MAPPING (Folium Setup) ---
-            m = folium.Map(location=[(from_lat + to_lat)/2, (from_lon + to_lon)/2], zoom_start=13, zoom_control=False, tiles=None)
-            
-            # THE NEW FIX: Inject Google Maps with Live Traffic Lines baked in!
-            # This replaces the OpenStreetMap code entirely.
-            folium.TileLayer(
-                tiles='https://mt1.google.com/vt/lyrs=m@221097413,traffic&x={x}&y={y}&z={z}',
-                attr='Google Maps Live Traffic',
-                name='Google Traffic',
-                overlay=False,
-                control=True
-            ).add_to(m)
-
-            # --- GOOGLE DIRECTIONS (Live ETA & Alternative Routes) ---
-            directions_url = f"https://maps.googleapis.com/maps/api/directions/json?origin={from_lat},{from_lon}&destination={to_lat},{to_lon}&alternatives=true&key={GOOGLE_API_KEY}"
-            
-            if avoid_expressway:
-                directions_url += "&avoid=tolls"
-                
-            # LIVE ACCIDENT/TRAFFIC FACTOR:
-            if timing_mode == 'now':
-                directions_url += "&departure_time=now"
-
-            route_response = requests.get(directions_url).json()
-            
-            eta_text = "Calculating..."
-
-            if route_response.get('status') == 'OK':
-                routes = route_response['routes']
-                primary_route = routes[0]
-                
-                # Extract the Live ETA
-                leg = primary_route['legs'][0]
-                if 'duration_in_traffic' in leg:
-                    eta_text = leg['duration_in_traffic']['text'] # Live with accidents
-                else:
-                    eta_text = leg['duration']['text'] # Standard historic ETA
-                
-                # 1. DRAW ALTERNATIVE ROUTES FIRST (Underneath)
-                if len(routes) > 1:
-                    for alt_route in routes[1:]:
-                        alt_coords = polyline.decode(alt_route['overview_polyline']['points'])
-                        folium.PolyLine(
-                            alt_coords,
-                            color='#64748b', # Faded Grey
-                            weight=5,
-                            opacity=0.6,
-                            dash_array='10', # Dashed line style
-                            tooltip="Alternative Route"
-                        ).add_to(m)
-
-                # 2. DRAW PRIMARY ROUTE (On Top)
-                main_coords = polyline.decode(primary_route['overview_polyline']['points'])
-                folium.PolyLine(
-                    main_coords,
-                    color=line_color,
-                    weight=8,
-                    opacity=0.9,
-                    tooltip=f"Predicted Flow: {prediction_text} ({eta_text})"
-                ).add_to(m)
-                
-                folium.Marker([from_lat, from_lon], popup="Start", icon=folium.Icon(color='darkblue', icon='circle')).add_to(m)
-                folium.Marker([to_lat, to_lon], popup="Destination", icon=folium.Icon(color='red', icon='flag')).add_to(m)
-                
-                m.fit_bounds([ [min(p[0] for p in main_coords), min(p[1] for p in main_coords)], 
-                               [max(p[0] for p in main_coords), max(p[1] for p in main_coords)] ])
-            else:
-                folium.PolyLine([(from_lat, from_lon), (to_lat, to_lon)], color=line_color, weight=5).add_to(m)
-
-            map_html = m.get_root().render()
-
-            # --- RENDER RESULTS ---
-            return render(request, 'predictor/result.html', {
-                'prediction': prediction_text,
-                'confidence': round(confidence_score, 1),
-                'eta': eta_text, # SENDING ETA TO HTML
-                'map_html': map_html,
-                'google_key': GOOGLE_API_KEY 
-            })
+            context = predict_route(_form_params(request.POST), include_map=True)
+            return render(request, 'predictor/result.html', context)
 
         except Exception as e:
             return render(request, 'predictor/index.html', {
                 'error': f"Prediction failed: {str(e)}",
-                'google_key': GOOGLE_API_KEY
+                'google_key': GOOGLE_API_KEY,
             })
 
     return render(request, 'predictor/index.html', {'google_key': GOOGLE_API_KEY})
+
+
+@require_POST
+def chatbot_predict(request):
+    try:
+        payload = json.loads(request.body.decode('utf-8') or '{}')
+
+        if not payload.get('to_lat') or not payload.get('to_lon'):
+            return JsonResponse({
+                'ok': False,
+                'message': "I need a destination before I can predict the route.",
+            }, status=400)
+
+        result = predict_route(payload, include_map=False)
+        return JsonResponse({
+            'ok': True,
+            'prediction': result['prediction'],
+            'confidence': result['confidence'],
+            'eta': result['eta'],
+            'advice': result['advice'],
+            'message': (
+                f"I predict {result['prediction'].lower()} traffic with "
+                f"{result['confidence']}% confidence. {result['advice']}"
+            ),
+        })
+    except Exception as e:
+        return JsonResponse({
+            'ok': False,
+            'message': f"Sorry, I couldn't complete that prediction: {str(e)}",
+        }, status=500)
