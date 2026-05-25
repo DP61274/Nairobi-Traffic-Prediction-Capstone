@@ -6,4 +6,4 @@ services:
     startCommand: "gunicorn nairobi_traffic_system.wsgi:application"
     envVars:
       - key: PYTHON_VERSION
-        value: 3.10.0
+        value: 3.12.8
