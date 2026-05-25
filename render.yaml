@@ -7,3 +7,13 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.12.8
+      - key: AT_USERNAME
+        value: sandbox
+      - key: AT_SHORTCODE
+        value: "61274"
+      - key: AT_SMS_KEYWORD
+        value: TRAFFIC
+      - key: AT_SMS_API_URL
+        value: https://api.sandbox.africastalking.com/version1/messaging
+      - key: AT_API_KEY
+        sync: false

@@ -1,14 +1,26 @@
 import json
+import os
 
-from django.http import JsonResponse
+import requests
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
+from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
 from .services import GOOGLE_API_KEY, WEATHER_OPTIONS, normalize_location, predict_route
+from .sms import SmsParseError, format_prediction_sms, onboarding_message, parse_sms_request
 
 
 VALID_DAYS = {str(day) for day in range(7)}
 VALID_HOURS = {str(hour) for hour in range(24)}
+
+# Sandbox defaults. For a live hackathon shortcode, change these environment
+# variables only; the webhook and parser do not assume production values.
+AT_USERNAME = os.getenv('AT_USERNAME', 'sandbox')
+AT_API_KEY = os.getenv('AT_API_KEY', '')
+AT_SHORTCODE = os.getenv('AT_SHORTCODE', '61274')
+AT_SMS_KEYWORD = os.getenv('AT_SMS_KEYWORD', 'TRAFFIC')
+AT_SMS_API_URL = os.getenv('AT_SMS_API_URL', 'https://api.sandbox.africastalking.com/version1/messaging')
 
 
 def _form_params(post_data):
@@ -140,3 +152,88 @@ def chatbot_predict(request):
             'ok': False,
             'message': f"Sorry, I couldn't complete that prediction: {str(e)}",
         }, status=500)
+
+
+def _sms_text(request):
+    if request.content_type and 'application/json' in request.content_type:
+        try:
+            payload = json.loads(request.body.decode('utf-8') or '{}')
+        except json.JSONDecodeError:
+            payload = {}
+        return payload.get('text') or payload.get('message') or ''
+
+    return request.POST.get('text') or request.POST.get('message') or ''
+
+
+def _sms_sender(request):
+    if request.content_type and 'application/json' in request.content_type:
+        try:
+            payload = json.loads(request.body.decode('utf-8') or '{}')
+        except json.JSONDecodeError:
+            payload = {}
+        return payload.get('from') or payload.get('phoneNumber') or ''
+
+    return request.POST.get('from') or request.POST.get('phoneNumber') or ''
+
+
+def _send_sms_reply(phone_number, message):
+    if not AT_API_KEY or not phone_number:
+        return False
+
+    try:
+        response = requests.post(
+            AT_SMS_API_URL,
+            data={
+                'username': AT_USERNAME,
+                'to': phone_number,
+                'message': message,
+                'from': AT_SHORTCODE,
+            },
+            headers={
+                'apiKey': AT_API_KEY,
+                'Accept': 'application/json',
+            },
+            timeout=8,
+        )
+        return response.status_code < 400
+    except Exception:
+        return False
+
+
+@csrf_exempt
+@require_POST
+def africastalking_sms_webhook(request):
+    incoming_text = _sms_text(request)
+    sender = _sms_sender(request)
+
+    try:
+        parsed = parse_sms_request(incoming_text, keyword=AT_SMS_KEYWORD)
+        if parsed['type'] == 'help':
+            reply = onboarding_message()
+        else:
+            try:
+                origin = normalize_location(parsed['origin_text'])
+            except ValueError:
+                reply = "Could not find starting location. Try a nearby landmark or area."
+            else:
+                try:
+                    destination = normalize_location(parsed['destination_text'])
+                except ValueError:
+                    reply = "Could not find destination location. Try a nearby landmark or area."
+                else:
+                    prediction_payload = {
+                        'from_lat': origin['lat'],
+                        'from_lon': origin['lon'],
+                        'to_lat': destination['lat'],
+                        'to_lon': destination['lon'],
+                        **parsed['payload'],
+                    }
+                    result = predict_route(prediction_payload, include_map=False)
+                    reply = format_prediction_sms(result)
+    except SmsParseError as e:
+        reply = str(e)
+    except Exception:
+        reply = "Sorry, traffic prediction failed. Please try again later."
+
+    _send_sms_reply(sender, reply)
+    return HttpResponse(reply, content_type='text/plain')
