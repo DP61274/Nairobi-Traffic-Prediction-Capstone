@@ -4,7 +4,11 @@ from django.http import JsonResponse
 from django.shortcuts import render
 from django.views.decorators.http import require_POST
 
-from .services import GOOGLE_API_KEY, predict_route
+from .services import GOOGLE_API_KEY, WEATHER_OPTIONS, normalize_location, predict_route
+
+
+VALID_DAYS = {str(day) for day in range(7)}
+VALID_HOURS = {str(hour) for hour in range(24)}
 
 
 def _form_params(post_data):
@@ -47,16 +51,81 @@ def predict_traffic(request):
 def chatbot_predict(request):
     try:
         payload = json.loads(request.body.decode('utf-8') or '{}')
+        timing_mode = payload.get('timing_mode', 'now')
 
-        if not payload.get('to_lat') or not payload.get('to_lon'):
+        if timing_mode not in ['now', 'later']:
             return JsonResponse({
                 'ok': False,
-                'message': "I need a destination before I can predict the route.",
+                'field': 'timing',
+                'message': "Please choose a valid travel time.",
             }, status=400)
 
-        result = predict_route(payload, include_map=False)
+        try:
+            origin = normalize_location(payload.get('origin'))
+        except ValueError as e:
+            return JsonResponse({
+                'ok': False,
+                'field': 'origin',
+                'message': str(e),
+            }, status=400)
+
+        try:
+            destination = normalize_location(payload.get('destination'))
+        except ValueError as e:
+            return JsonResponse({
+                'ok': False,
+                'field': 'destination',
+                'message': str(e),
+            }, status=400)
+
+        prediction_payload = {
+            'from_lat': origin['lat'],
+            'from_lon': origin['lon'],
+            'to_lat': destination['lat'],
+            'to_lon': destination['lon'],
+            'timing_mode': timing_mode,
+            'school_impact': payload.get('school_impact', 0),
+            'avoid_expressway': payload.get('avoid_expressway', 0),
+        }
+
+        if timing_mode == 'later':
+            day = str(payload.get('day', ''))
+            hour = str(payload.get('hour', ''))
+            rain = str(payload.get('rain', ''))
+
+            if day not in VALID_DAYS:
+                return JsonResponse({
+                    'ok': False,
+                    'field': 'day',
+                    'message': "Please choose a valid day of week.",
+                }, status=400)
+
+            if hour not in VALID_HOURS:
+                return JsonResponse({
+                    'ok': False,
+                    'field': 'hour',
+                    'message': "Please choose a valid travel time.",
+                }, status=400)
+
+            if rain not in WEATHER_OPTIONS:
+                return JsonResponse({
+                    'ok': False,
+                    'field': 'weather',
+                    'message': "Please select one of the available weather options.",
+                }, status=400)
+
+            prediction_payload.update({
+                'day': day,
+                'hour': hour,
+                'rain': rain,
+            })
+
+        result = predict_route(prediction_payload, include_map=False)
         return JsonResponse({
             'ok': True,
+            'origin': origin,
+            'destination': destination,
+            'timing_mode': timing_mode,
             'prediction': result['prediction'],
             'confidence': result['confidence'],
             'eta': result['eta'],

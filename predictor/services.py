@@ -28,6 +28,11 @@ OPENWEATHER_API_KEY = os.getenv('OPENWEATHER_API_KEY', '')
 
 LABELS = {0: 'Clear', 1: 'Moderate', 2: 'Heavy', 3: 'Severe'}
 COLORS = {0: '#10b981', 1: '#f59e0b', 2: '#f97316', 3: '#ef4444'}
+WEATHER_OPTIONS = {
+    '0.0': 'Dry/Sunny',
+    '5.0': 'Light Rain',
+    '15.0': 'Heavy Downpour',
+}
 
 
 def get_smart_advice(prediction):
@@ -38,6 +43,54 @@ def get_smart_advice(prediction):
     if prediction == 'Heavy':
         return "Significant slowdowns detected. Leave early or look at the alternative routes on the map."
     return "Severe gridlock. Avoid this route right now if possible, or consider the Expressway to bypass the worst delays."
+
+
+def _as_bool(value):
+    return value is True or str(value).lower() in ['1', 'true', 'yes', 'on']
+
+
+def geocode_location(location_text):
+    query = (location_text or '').strip()
+    if not query:
+        raise ValueError("Please enter a location.")
+
+    geocode_url = "https://maps.googleapis.com/maps/api/geocode/json"
+    try:
+        response = requests.get(geocode_url, params={
+            'address': query,
+            'components': 'country:KE',
+            'key': GOOGLE_API_KEY,
+        }, timeout=5).json()
+    except Exception:
+        raise ValueError("I could not reach the location service. Please try again.")
+
+    if response.get('status') != 'OK' or not response.get('results'):
+        raise ValueError("I couldn't find that location. Please try another landmark or area.")
+
+    result = response['results'][0]
+    location = result['geometry']['location']
+    return {
+        'label': result.get('formatted_address', query),
+        'lat': float(location['lat']),
+        'lon': float(location['lng']),
+    }
+
+
+def normalize_location(location):
+    if not location:
+        raise ValueError("Please provide a location.")
+
+    if isinstance(location, str):
+        return geocode_location(location)
+
+    if location.get('lat') is not None and location.get('lon') is not None:
+        return {
+            'label': location.get('label') or location.get('text') or 'Selected location',
+            'lat': float(location['lat']),
+            'lon': float(location['lon']),
+        }
+
+    return geocode_location(location.get('text') or location.get('label'))
 
 
 def _get_weather(from_lat, from_lon):
@@ -166,8 +219,8 @@ def predict_route(params, include_map=True):
     from_lon = float(params.get('from_lon', 36.817))
     to_lat = float(params['to_lat'])
     to_lon = float(params['to_lon'])
-    school_impact = 1 if params.get('school_impact') else 0
-    avoid_expressway = bool(params.get('avoid_expressway'))
+    school_impact = 1 if _as_bool(params.get('school_impact')) else 0
+    avoid_expressway = _as_bool(params.get('avoid_expressway'))
     timing_mode = params.get('timing_mode', 'now')
 
     if timing_mode == 'now':
