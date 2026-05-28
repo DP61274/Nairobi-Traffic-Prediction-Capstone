@@ -6,4 +6,16 @@ services:
     startCommand: "gunicorn nairobi_traffic_system.wsgi:application"
     envVars:
       - key: PYTHON_VERSION
-        value: 3.10.0
+        value: 3.12.8
+      - key: AT_USERNAME
+        value: sandbox
+      - key: AT_SHORTCODE
+        value: "61274"
+      - key: AT_SMS_KEYWORD
+        value: TRAFFIC
+      - key: AT_SMS_MODE
+        value: premium
+      - key: AT_SMS_API_URL
+        value: https://content.africastalking.com/version1/messaging
+      - key: AT_API_KEY
+        sync: false

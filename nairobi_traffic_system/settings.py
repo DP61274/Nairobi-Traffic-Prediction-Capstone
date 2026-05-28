@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 
 import os
 from pathlib import Path
+import dj_database_url
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -21,12 +22,12 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-alvs-$#hhh61k-flq0t=o1y#k#6&x#@%w*_0e(%0_!@*wqaj+@'
+SECRET_KEY = os.environ.get( "SECRET_KEY", "django-insecure-dev-fallback" )
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.environ.get("DEBUG", "False") == "True"
 
-ALLOWED_HOSTS = ['nairobi-traffic-ai.onrender.com', 'localhost', '127.0.0.1', '*']
+ALLOWED_HOSTS = [ 'nairobi-traffic-ai.onrender.com', 'localhost', '127.0.0.1', '*' ]
 
 
 # Application definition
@@ -76,10 +77,10 @@ WSGI_APPLICATION = 'nairobi_traffic_system.wsgi.application'
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-    }
+    'default': dj_database_url.config(
+        default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
+        conn_max_age=600
+    )
 }
 
 
@@ -120,3 +121,19 @@ USE_TZ = True
 STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+
+#Africa's Talking environment settings
+AT_API_KEY = os.environ.get("AT_API_KEY")
+AT_USERNAME = os.environ.get("AT_USERNAME")
+AT_SHORTCODE = os.environ.get("AT_SHORTCODE", "61274")
+AT_SMS_KEYWORD = os.environ.get("AT_SMS_KEYWORD", "TRAFFIC")
+AT_SMS_MODE = os.environ.get("AT_SMS_MODE", "premium")
+AT_SMS_API_URL = os.environ.get( "AT_SMS_API_URL", "https://content.africastalking.com/version1/messaging" )
+
+# External API keys
+GOOGLE_MAPS_API_KEY = os.environ.get("GOOGLE_MAPS_API_KEY")
+OPENWEATHER_API_KEY = os.environ.get("OPENWEATHER_API_KEY")
+
+# Default primary key field type (render CSRF)
+CSRF_TRUSTED_ORIGINS = [ "https://nairobi-traffic-ai.onrender.com" ]
+

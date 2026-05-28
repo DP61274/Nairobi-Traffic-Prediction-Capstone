@@ -105,6 +105,7 @@
         .chatbot-messages { flex: 1; overflow-y: auto; padding: 18px; display: flex; flex-direction: column; gap: 12px; }
         .chat-message {
             max-width: 86%; padding: 11px 13px; border-radius: 16px; font-size: 0.9rem; line-height: 1.45;
+            white-space: pre-line;
         }
         .chat-message.bot {
             align-self: flex-start; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.08);
@@ -119,7 +120,14 @@
             border: 1px solid rgba(56, 189, 248, 0.35); color: #dbeafe; background: rgba(56, 189, 248, 0.12);
             border-radius: 999px; padding: 8px 11px; font-size: 0.82rem;
         }
+        .chat-chip.active {
+            border-color: rgba(16, 185, 129, 0.8); background: rgba(16, 185, 129, 0.24); color: #ffffff;
+        }
+        .chat-chip.warning {
+            border-color: rgba(251, 191, 36, 0.45); background: rgba(251, 191, 36, 0.12); color: #fef3c7;
+        }
         .chatbot-input-row { padding: 14px; display: flex; gap: 10px; border-top: 1px solid rgba(255,255,255,0.08); background: rgba(0,0,0,0.18); }
+        .chatbot-input-row.hidden { display: none; }
         .chatbot-input {
             flex: 1; min-width: 0; border-radius: 999px; border: 1px solid rgba(255,255,255,0.14);
             background: rgba(0,0,0,0.24); color: white; padding: 11px 14px; outline: none;
@@ -215,7 +223,7 @@
                     <div class="d-flex flex-wrap gap-3 mb-5 p-3 bg-light rounded-3 border">
                         <div class="form-check form-switch">
                             <input class="form-check-input" type="checkbox" id="schoolCheck" name="school_impact" value="1">
-                            <label class="form-check-label fw-medium" for="schoolCheck">🏫 School Transition Week (Opening/Closing)</label>
+                            <label class="form-check-label fw-medium" for="schoolCheck">🏫 School Opening/Closing Week</label>
                         </div>
                         <div class="form-check form-switch">
                             <input class="form-check-input" type="checkbox" id="expresswayCheck" name="avoid_expressway" value="1">
@@ -282,11 +290,7 @@
         </button>
     </div>
     <div class="chatbot-messages" id="chatbotMessages"></div>
-    <div class="chatbot-actions" id="chatbotActions">
-        <button class="chat-chip" type="button" onclick="useChatCurrentLocation()">
-            <i class="fas fa-crosshairs me-1"></i> Use current location
-        </button>
-    </div>
+    <div class="chatbot-actions" id="chatbotActions"></div>
     <form class="chatbot-input-row" id="chatbotForm">
         <input class="chatbot-input" id="chatbotInput" type="text" autocomplete="off" placeholder="Type a place in Nairobi">
         <button class="chatbot-send" type="submit" aria-label="Send message">
@@ -300,11 +304,32 @@
 
 <script>
     const chatbotPredictUrl = "{% url 'chatbot_predict' %}";
+    const dayOptions = [
+        { value: '0', label: 'Monday' },
+        { value: '1', label: 'Tuesday' },
+        { value: '2', label: 'Wednesday' },
+        { value: '3', label: 'Thursday' },
+        { value: '4', label: 'Friday' },
+        { value: '5', label: 'Saturday' },
+        { value: '6', label: 'Sunday' }
+    ];
+    const weatherOptions = [
+        { value: '0.0', label: 'Dry/Sunny' },
+        { value: '5.0', label: 'Light Rain' },
+        { value: '15.0', label: 'Heavy Downpour' }
+    ];
     const chatState = {
         step: 'origin',
-        from: null,
-        to: null,
-        lastPredictionReady: false
+        origin: null,
+        destination: null,
+        timingMode: null,
+        day: null,
+        hour: null,
+        rain: null,
+        schoolImpact: false,
+        avoidExpressway: false,
+        lastPredictionReady: false,
+        isBusy: false
     };
 
     function getCsrfToken() {
@@ -317,9 +342,18 @@
         panel.classList.toggle('open');
         if (panel.classList.contains('open') && !panel.dataset.started) {
             panel.dataset.started = 'true';
-            addChatMessage('bot', 'Hi, I can help predict your Nairobi commute. Where are you starting from?');
+            startChatFlow();
             document.getElementById('chatbotInput').focus();
         }
+    }
+
+    function startChatFlow() {
+        chatState.step = 'origin';
+        addChatMessage('bot', '👋 Hi there!\nWhere is your journey starting from?');
+        setInputVisible(true, 'Type a starting point in Nairobi');
+        renderActions([
+            { label: 'Use current location', icon: 'fa-crosshairs', action: 'currentLocation' }
+        ]);
     }
 
     function addChatMessage(sender, text) {
@@ -348,36 +382,59 @@
         messages.scrollTop = messages.scrollHeight;
     }
 
-    function setChatActions(showLocation) {
-        document.getElementById('chatbotActions').style.display = showLocation ? 'flex' : 'none';
+    function setInputVisible(isVisible, placeholder) {
+        const row = document.getElementById('chatbotForm');
+        const input = document.getElementById('chatbotInput');
+        row.classList.toggle('hidden', !isVisible);
+        input.placeholder = placeholder || '';
+        if (isVisible) input.focus();
     }
 
-    function geocodeChatPlace(query) {
-        return new Promise((resolve, reject) => {
-            if (!window.google || !google.maps) {
-                reject(new Error('Google Maps is still loading. Please try again.'));
-                return;
-            }
+    function renderActions(actions) {
+        const actionsEl = document.getElementById('chatbotActions');
+        actionsEl.innerHTML = '';
+        actionsEl.style.display = actions.length ? 'flex' : 'none';
 
-            const geocoder = new google.maps.Geocoder();
-            geocoder.geocode({
-                address: query,
-                componentRestrictions: { country: 'KE' }
-            }, (results, status) => {
-                if (status === 'OK' && results[0]) {
-                    const location = results[0].geometry.location;
-                    resolve({
-                        label: results[0].formatted_address,
-                        lat: location.lat(),
-                        lon: location.lng()
-                    });
-                } else {
-                    reject(new Error('I could not find that place. Try a more specific Nairobi landmark or road.'));
-                }
-            });
+        actions.forEach((action) => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = `chat-chip ${action.active ? 'active' : ''} ${action.warning ? 'warning' : ''}`;
+            button.innerHTML = `${action.icon ? `<i class="fas ${action.icon} me-1"></i>` : ''}${action.label}`;
+            button.addEventListener('click', () => handleChatAction(action.action, action.value));
+            actionsEl.appendChild(button);
         });
     }
 
+    function handleChatAction(action, value) {
+        if (chatState.isBusy) return;
+
+        if (action === 'currentLocation') {
+            useChatCurrentLocation();
+        } else if (action === 'timing') {
+            chooseTiming(value);
+        } else if (action === 'day') {
+            chooseDay(value);
+        } else if (action === 'hour') {
+            chooseHour(value);
+        } else if (action === 'weather') {
+            chooseWeather(value);
+        } else if (action === 'toggleSchool') {
+            chatState.schoolImpact = !chatState.schoolImpact;
+            showAdvancedPreferences();
+        } else if (action === 'toggleExpressway') {
+            chatState.avoidExpressway = !chatState.avoidExpressway;
+            showAdvancedPreferences();
+        } else if (action === 'predict') {
+            requestChatPrediction();
+        } else if (action === 'newDestination') {
+            chatState.step = 'destination';
+            chatState.destination = null;
+            chatState.lastPredictionReady = false;
+            addChatMessage('bot', 'Where are you going?');
+            setInputVisible(true, 'Type your destination');
+            renderActions([]);
+        }
+    }
     function useChatCurrentLocation() {
         if (!navigator.geolocation) {
             addChatMessage('bot', 'Your browser does not support location sharing.');
@@ -386,14 +443,15 @@
 
         addChatMessage('user', 'Use my current location');
         navigator.geolocation.getCurrentPosition((pos) => {
-            chatState.from = {
+            chatState.origin = {
                 label: 'Current location',
                 lat: pos.coords.latitude,
                 lon: pos.coords.longitude
             };
             chatState.step = 'destination';
-            setChatActions(false);
+            renderActions([]);
             addChatMessage('bot', 'Got it. Where are you going?');
+            setInputVisible(true, 'Type your destination');
             document.getElementById('chatbotInput').focus();
         }, () => {
             addChatMessage('bot', 'I could not access your location. Type your starting point instead.');
@@ -409,66 +467,248 @@
         addChatMessage('user', text);
         input.value = '';
 
-        try {
-            if (chatState.step === 'origin') {
-                chatState.from = await geocodeChatPlace(text);
-                chatState.step = 'destination';
-                setChatActions(false);
-                addChatMessage('bot', `Starting from ${chatState.from.label}. Where are you going?`);
-                return;
-            }
-
-            if (chatState.step === 'destination') {
-                chatState.to = await geocodeChatPlace(text);
-                addChatMessage('bot', `Checking traffic to ${chatState.to.label}...`);
-                await requestChatPrediction();
-            }
-        } catch (error) {
-            addChatMessage('bot', error.message);
+        if (chatState.step === 'origin') {
+            chatState.origin = { text };
+            chatState.step = 'destination';
+            renderActions([]);
+            addChatMessage('bot', 'Where are you going?');
+            setInputVisible(true, 'Type your destination');
+            return;
         }
+
+        if (chatState.step === 'destination') {
+            chatState.destination = { text };
+            chatState.step = 'timing';
+            askTimingMode();
+        }
+    }
+
+    function askTimingMode() {
+        addChatMessage('bot', 'When are you traveling?');
+        setInputVisible(false);
+        renderActions([
+            { label: 'Leave Right Now', icon: 'fa-bolt', action: 'timing', value: 'now' },
+            { label: 'Plan For Later', icon: 'fa-calendar-alt', action: 'timing', value: 'later' }
+        ]);
+    }
+
+    function chooseTiming(value) {
+        chatState.timingMode = value;
+        addChatMessage('user', value === 'now' ? 'Leave Right Now' : 'Plan For Later');
+
+        if (value === 'now') {
+            chatState.day = null;
+            chatState.hour = null;
+            chatState.rain = null;
+            addChatMessage('bot', 'I will use the real current day, hour, and live weather when I run the prediction.');
+            showAdvancedPreferences();
+        } else {
+            chatState.step = 'day';
+            addChatMessage('bot', 'Choose the day of week.');
+            renderActions(dayOptions.map((day) => ({
+                label: day.label,
+                action: 'day',
+                value: day.value
+            })));
+        }
+    }
+
+    function chooseDay(value) {
+        const day = dayOptions.find((item) => item.value === value);
+        if (!day) {
+            addChatMessage('bot', 'Please choose a valid day of week.');
+            return;
+        }
+
+        chatState.day = value;
+        chatState.step = 'hour';
+        addChatMessage('user', day.label);
+        addChatMessage('bot', 'Choose the travel hour.');
+        renderActions(Array.from({ length: 24 }, (_, hour) => ({
+            label: `${String(hour).padStart(2, '0')}:00`,
+            action: 'hour',
+            value: String(hour)
+        })));
+    }
+
+    function chooseHour(value) {
+        const hour = Number(value);
+        if (!Number.isInteger(hour) || hour < 0 || hour > 23) {
+            addChatMessage('bot', 'Please choose a valid travel time.');
+            return;
+        }
+
+        chatState.hour = String(hour);
+        chatState.step = 'weather';
+        addChatMessage('user', `${String(hour).padStart(2, '0')}:00`);
+        addChatMessage('bot', 'Choose the weather forecast.');
+        renderActions(weatherOptions.map((weather) => ({
+            label: weather.label,
+            action: 'weather',
+            value: weather.value
+        })));
+    }
+
+    function chooseWeather(value) {
+        const weather = weatherOptions.find((item) => item.value === value);
+        if (!weather) {
+            addChatMessage('bot', 'Please select one of the available weather options.');
+            return;
+        }
+
+        chatState.rain = value;
+        addChatMessage('user', weather.label);
+        showAdvancedPreferences();
+    }
+
+    function showAdvancedPreferences() {
+        chatState.step = 'advanced';
+        addChatMessage('bot', 'Advanced Preferences (Optional)');
+        renderActions([
+            {
+                label: 'School Opening/Closing Week',
+                icon: 'fa-school',
+                action: 'toggleSchool',
+                active: chatState.schoolImpact
+            },
+            {
+                label: 'Avoid Toll Expressway',
+                icon: 'fa-road-barrier',
+                action: 'toggleExpressway',
+                active: chatState.avoidExpressway
+            },
+            {
+                label: 'Predict Traffic',
+                icon: 'fa-arrow-right',
+                action: 'predict',
+                warning: true
+            }
+        ]);
     }
 
     async function requestChatPrediction() {
-        const response = await fetch(chatbotPredictUrl, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': getCsrfToken()
-            },
-            body: JSON.stringify({
-                from_lat: chatState.from.lat,
-                from_lon: chatState.from.lon,
-                to_lat: chatState.to.lat,
-                to_lon: chatState.to.lon,
-                timing_mode: document.querySelector('input[name="timing_mode"]:checked').value,
-                hour: document.getElementById('manual-hour').value || 8,
-                day: document.getElementById('manual-day').value || 0,
-                rain: document.querySelector('select[name="rain"]').value || 0.0,
-                school_impact: document.getElementById('schoolCheck').checked ? 1 : 0,
-                avoid_expressway: document.getElementById('expresswayCheck').checked ? 1 : 0
-            })
-        });
-        const result = await response.json();
-
-        if (!response.ok || !result.ok) {
-            throw new Error(result.message || 'Prediction failed.');
+        if (!chatState.origin) {
+            chatState.step = 'origin';
+            addChatMessage('bot', 'I still need your starting point.');
+            setInputVisible(true, 'Type a starting point in Nairobi');
+            renderActions([{ label: 'Use current location', icon: 'fa-crosshairs', action: 'currentLocation' }]);
+            return;
         }
 
+        if (!chatState.destination) {
+            chatState.step = 'destination';
+            addChatMessage('bot', 'I still need your destination.');
+            setInputVisible(true, 'Type your destination');
+            renderActions([]);
+            return;
+        }
+
+        chatState.isBusy = true;
+        addChatMessage('bot', 'Checking traffic now...');
+        renderActions([]);
+
+        const payload = {
+            origin: chatState.origin,
+            destination: chatState.destination,
+            timing_mode: chatState.timingMode || 'now',
+            school_impact: chatState.schoolImpact ? 1 : 0,
+            avoid_expressway: chatState.avoidExpressway ? 1 : 0
+        };
+
+        if (payload.timing_mode === 'later') {
+            payload.day = chatState.day;
+            payload.hour = chatState.hour;
+            payload.rain = chatState.rain;
+        }
+
+        let response;
+        let result;
+        try {
+            response = await fetch(chatbotPredictUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': getCsrfToken()
+                },
+                body: JSON.stringify(payload)
+            });
+            result = await response.json();
+        } catch (error) {
+            chatState.isBusy = false;
+            addChatMessage('bot', 'I could not complete the prediction right now. Please try again.');
+            showAdvancedPreferences();
+            return;
+        }
+
+        chatState.isBusy = false;
+
+        if (!response.ok || !result.ok) {
+            handleChatError(result);
+            return;
+        }
+
+        chatState.origin = result.origin;
+        chatState.destination = result.destination;
         chatState.lastPredictionReady = true;
         addChatResult(result);
         addChatMessage('bot', 'You can view the full map result or enter another destination.');
-        chatState.step = 'destination';
+        renderActions([
+            { label: 'New destination', icon: 'fa-location-dot', action: 'newDestination' }
+        ]);
+    }
+
+    function handleChatError(result) {
+        addChatMessage('bot', result.message || 'Prediction failed. Please check the previous step and try again.');
+
+        if (result.field === 'origin') {
+            chatState.step = 'origin';
+            setInputVisible(true, 'Type a starting point in Nairobi');
+            renderActions([{ label: 'Use current location', icon: 'fa-crosshairs', action: 'currentLocation' }]);
+        } else if (result.field === 'destination') {
+            chatState.step = 'destination';
+            setInputVisible(true, 'Type your destination');
+            renderActions([]);
+        } else if (result.field === 'timing') {
+            askTimingMode();
+        } else if (result.field === 'day') {
+            chatState.step = 'day';
+            renderActions(dayOptions.map((day) => ({ label: day.label, action: 'day', value: day.value })));
+        } else if (result.field === 'hour') {
+            chatState.step = 'hour';
+            renderActions(Array.from({ length: 24 }, (_, hour) => ({ label: `${String(hour).padStart(2, '0')}:00`, action: 'hour', value: String(hour) })));
+        } else if (result.field === 'weather') {
+            chatState.step = 'weather';
+            renderActions(weatherOptions.map((weather) => ({ label: weather.label, action: 'weather', value: weather.value })));
+        } else {
+            showAdvancedPreferences();
+        }
     }
 
     function submitChatRouteToMap() {
-        if (!chatState.lastPredictionReady || !chatState.from || !chatState.to) return;
+        if (!chatState.lastPredictionReady || !chatState.origin || !chatState.destination) return;
 
-        document.getElementById('from_lat').value = chatState.from.lat;
-        document.getElementById('from_lon').value = chatState.from.lon;
-        document.getElementById('to_lat').value = chatState.to.lat;
-        document.getElementById('to_lon').value = chatState.to.lon;
-        document.getElementById('origin-input').value = chatState.from.label;
-        document.getElementById('destination-input').value = chatState.to.label;
+        document.getElementById('from_lat').value = chatState.origin.lat;
+        document.getElementById('from_lon').value = chatState.origin.lon;
+        document.getElementById('to_lat').value = chatState.destination.lat;
+        document.getElementById('to_lon').value = chatState.destination.lon;
+        document.getElementById('origin-input').value = chatState.origin.label;
+        document.getElementById('destination-input').value = chatState.destination.label;
+
+        if (chatState.timingMode === 'later') {
+            document.getElementById('plan_later').checked = true;
+            document.getElementById('manual-day').value = chatState.day;
+            document.getElementById('manual-hour').value = chatState.hour;
+            document.querySelector('select[name="rain"]').value = chatState.rain;
+        } else {
+            document.getElementById('leave_now').checked = true;
+        }
+
+        document.getElementById('schoolCheck').checked = chatState.schoolImpact;
+        document.getElementById('expresswayCheck').checked = chatState.avoidExpressway;
+        toggleTimeInputs();
+        document.getElementById('trafficForm').submit();
+    }
+
         document.getElementById('trafficForm').submit();
     }
 

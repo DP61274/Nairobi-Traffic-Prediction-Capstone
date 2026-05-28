@@ -1,9 +1,13 @@
 import datetime
-import os
 
 import folium
 import joblib
 import pandas as pd
+import logging
+import os
+import threading
+
+import folium
 import polyline
 import requests
 from django.conf import settings
@@ -22,12 +26,44 @@ except Exception as e:
     print(f"Model Loading Error: {e}")
     model = None
     scaler = None
+logger = logging.getLogger(__name__)
+_model = None
+_scaler = None
+_model_lock = threading.Lock()
 
 GOOGLE_API_KEY = os.getenv('GOOGLE_MAPS_API_KEY', '')
 OPENWEATHER_API_KEY = os.getenv('OPENWEATHER_API_KEY', '')
 
 LABELS = {0: 'Clear', 1: 'Moderate', 2: 'Heavy', 3: 'Severe'}
 COLORS = {0: '#10b981', 1: '#f59e0b', 2: '#f97316', 3: '#ef4444'}
+WEATHER_OPTIONS = {
+    '0.0': 'Dry/Sunny',
+    '5.0': 'Light Rain',
+    '15.0': 'Heavy Downpour',
+}
+
+
+def get_model():
+    global _model
+    if _model is None:
+        with _model_lock:
+            if _model is None:
+                logger.warning("Loading ML model into memory...")
+                import joblib
+
+                _model = joblib.load(MODEL_PATH)
+    return _model
+
+
+def get_scaler():
+    global _scaler
+    if _scaler is None:
+        with _model_lock:
+            if _scaler is None:
+                import joblib
+
+                _scaler = joblib.load(SCALER_PATH)
+    return _scaler
 
 
 def get_smart_advice(prediction):
@@ -38,6 +74,54 @@ def get_smart_advice(prediction):
     if prediction == 'Heavy':
         return "Significant slowdowns detected. Leave early or look at the alternative routes on the map."
     return "Severe gridlock. Avoid this route right now if possible, or consider the Expressway to bypass the worst delays."
+
+
+def _as_bool(value):
+    return value is True or str(value).lower() in ['1', 'true', 'yes', 'on']
+
+
+def geocode_location(location_text):
+    query = (location_text or '').strip()
+    if not query:
+        raise ValueError("Please enter a location.")
+
+    geocode_url = "https://maps.googleapis.com/maps/api/geocode/json"
+    try:
+        response = requests.get(geocode_url, params={
+            'address': query,
+            'components': 'country:KE',
+            'key': GOOGLE_API_KEY,
+        }, timeout=5).json()
+    except Exception:
+        raise ValueError("I could not reach the location service. Please try again.")
+
+    if response.get('status') != 'OK' or not response.get('results'):
+        raise ValueError("I couldn't find that location. Please try another landmark or area.")
+
+    result = response['results'][0]
+    location = result['geometry']['location']
+    return {
+        'label': result.get('formatted_address', query),
+        'lat': float(location['lat']),
+        'lon': float(location['lng']),
+    }
+
+
+def normalize_location(location):
+    if not location:
+        raise ValueError("Please provide a location.")
+
+    if isinstance(location, str):
+        return geocode_location(location)
+
+    if location.get('lat') is not None and location.get('lon') is not None:
+        return {
+            'label': location.get('label') or location.get('text') or 'Selected location',
+            'lat': float(location['lat']),
+            'lon': float(location['lon']),
+        }
+
+    return geocode_location(location.get('text') or location.get('label'))
 
 
 def _get_weather(from_lat, from_lon):
@@ -159,6 +243,8 @@ def _build_map(from_lat, from_lon, to_lat, to_lon, prediction_text, line_color, 
 
 
 def predict_route(params, include_map=True):
+    model = get_model()
+    scaler = get_scaler()
     if model is None or scaler is None:
         raise RuntimeError("Traffic model is not available.")
 
@@ -166,8 +252,8 @@ def predict_route(params, include_map=True):
     from_lon = float(params.get('from_lon', 36.817))
     to_lat = float(params['to_lat'])
     to_lon = float(params['to_lon'])
-    school_impact = 1 if params.get('school_impact') else 0
-    avoid_expressway = bool(params.get('avoid_expressway'))
+    school_impact = 1 if _as_bool(params.get('school_impact')) else 0
+    avoid_expressway = _as_bool(params.get('avoid_expressway'))
     timing_mode = params.get('timing_mode', 'now')
 
     if timing_mode == 'now':
