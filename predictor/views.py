@@ -7,10 +7,10 @@ from django.http import JsonResponse
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
+from django.conf import settings
 
 from .services import GOOGLE_API_KEY, WEATHER_OPTIONS, normalize_location, predict_route
 from .sms import SmsParseError, format_prediction_sms, onboarding_message, parse_sms_request
-
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +45,132 @@ def _form_params(post_data):
         'day': post_data.get('day', 0),
         'rain': post_data.get('rain', 0.0),
     }
+
+
+def send_traffic_sms(phone, name, route_name, frequency, notify_text):
+    try:
+        message = f"Hi {name}! 👋 Welcome to Nairobi SmartTraffic AI!\n\n"
+        message += f"✅ You're subscribed for {frequency} alerts on {route_name}.\n"
+        message += f"⏰ You'll be notified {notify_text} before your departure.\n\n"
+        message += f"Stay ahead of Nairobi traffic! 🚦\nPowered by SmartTraffic AI"
+
+        response = requests.post(
+            'http://api.sandbox.africastalking.com/version1/messaging',  # http not https
+            headers={
+                'Accept': 'application/json',
+                'apiKey': AT_API_KEY,
+                'Content-Type': 'application/x-www-form-urlencoded'
+            },
+            data={
+                'username': AT_USERNAME,
+                'to': phone,
+                'message': message
+            }
+        )
+        print(f"SMS Response: {response.text}")
+        return True
+    except Exception as e:
+        print(f"SMS Error: {e}")
+        return False
+
+
+def get_departure_windows(from_lat, from_lon, to_lat, to_lon, day, school_impact, rain_mm, temp_c, matatu_stop_count, current_hour):
+    windows = []
+    labels = {0: 'Clear', 1: 'Moderate', 2: 'Heavy', 3: 'Severe'}
+    icons = {0: '✅', 1: '⚠️', 2: '🔴', 3: '🚨'}
+
+    check_hours = [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+
+    for h in check_hours:
+        is_weekend = 1 if day >= 5 else 0
+        is_peak = 1 if h in [7, 8, 9, 16, 17, 18, 19] else 0
+        data = {
+            'from_lat': from_lat, 'from_lon': from_lon,
+            'to_lat': to_lat, 'to_lon': to_lon,
+            'matatu_stop_count': matatu_stop_count,
+            'is_inbound': 1, 'hour': h,
+            'day_of_week_enc': day,
+            'is_weekend': is_weekend,
+            'is_peak_hour': is_peak,
+            'school_impact': school_impact,
+            'avg_rain_mm': rain_mm,
+            'avg_temp_c': temp_c
+        }
+        input_df = pd.DataFrame([data])
+        scaled = pd.DataFrame(scaler.transform(input_df), columns=input_df.columns)
+        pred = model.predict(scaled)[0]
+        windows.append({
+            'hour': h,
+            'label': labels[pred],
+            'icon': icons[pred],
+            'level': int(pred)
+        })
+
+    grouped = []
+    i = 0
+    while i < len(windows):
+        start = windows[i]['hour']
+        level = windows[i]['level']
+        label = windows[i]['label']
+        icon = windows[i]['icon']
+        j = i
+        while j < len(windows) and windows[j]['level'] == level:
+            j += 1
+        end = windows[j-1]['hour'] + 1
+        grouped.append({
+            'range': f"{start}:00 - {end}:00",
+            'label': label,
+            'icon': icon,
+            'level': level,
+            'is_now': start <= current_hour < end
+        })
+        i = j
+
+    return grouped
+
+
+def subscribe(request):
+    from .models import Subscriber
+    if request.method == 'POST':
+        name = request.POST.get('name', '').strip()
+        phone = request.POST.get('phone', '').strip()
+        route = request.POST.get('route', '').strip()
+        frequency = request.POST.get('frequency', 'morning')
+        notify_before = int(request.POST.get('notify_before', 60))
+        morning_time = request.POST.get('morning_time') or None
+        evening_time = request.POST.get('evening_time') or None
+
+        if name and phone and route:
+            Subscriber.objects.get_or_create(
+                phone=phone,
+                defaults={
+                    'name': name, 'route': route,
+                    'frequency': frequency,
+                    'notify_before': notify_before,
+                    'morning_time': morning_time,
+                    'evening_time': evening_time,
+                }
+            )
+
+            route_coords = {
+                'thika':   {'name': 'Thika Road'},
+                'mombasa': {'name': 'Mombasa Road'},
+                'waiyaki': {'name': 'Waiyaki Way'},
+                'ngong':   {'name': 'Ngong Road'},
+                'langata': {'name': "Lang'ata Road"},
+            }
+
+            coords = route_coords.get(route, route_coords['thika'])
+            notify_text = f"{notify_before} mins" if notify_before < 60 else f"{notify_before//60} hour"
+
+            send_traffic_sms(phone, name, coords['name'], frequency, notify_text)
+
+            return render(request, 'predictor/index.html', {
+                'google_key': GOOGLE_API_KEY,
+                'success': f"✅ Subscribed! You'll get {frequency} alerts {notify_text} before your trip. Check your phone!"
+            })
+
+    return render(request, 'predictor/index.html', {'google_key': GOOGLE_API_KEY})
 
 
 def predict_traffic(request):

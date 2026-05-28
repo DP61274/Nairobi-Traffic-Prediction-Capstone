@@ -13,13 +13,13 @@
             background: linear-gradient(-45deg, #0f172a, #1e1b4b, #0f172a, #064e3b);
             background-size: 400% 400%; animation: gradientBG 15s ease infinite; min-height: 100vh;
         }
-        @keyframes gradientBG { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
+        @keyframes gradientBG { 0%{background-position:0% 50%} 50%{background-position:100% 50%} 100%{background-position:0% 50%} }
         
         .top-banner { height: 120px; background: transparent; }
         
         .result-card { 
-            border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 24px; 
-            background: rgba(15, 23, 42, 0.7); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255,255,255,0.1); border-radius: 24px; 
+            background: rgba(15,23,42,0.7); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
             box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); margin-top: -60px; overflow: hidden;
         }
         
@@ -27,48 +27,76 @@
         .map-wrapper iframe { width: 100% !important; height: 100% !important; } 
         .map-container-bg { background: rgba(0,0,0,0.3); } 
         
-        .status-Clear { color: #34d399; text-shadow: 0 0 20px rgba(52, 211, 153, 0.4); }
-        .status-Moderate { color: #fbbf24; text-shadow: 0 0 20px rgba(251, 191, 36, 0.4); }
-        .status-Heavy { color: #fb923c; text-shadow: 0 0 20px rgba(251, 146, 60, 0.4); }
-        .status-Severe { color: #f87171; text-shadow: 0 0 20px rgba(248, 113, 113, 0.4); }
+        .status-Clear  { color: #34d399; text-shadow: 0 0 20px rgba(52,211,153,0.4); }
+        .status-Moderate { color: #fbbf24; text-shadow: 0 0 20px rgba(251,191,36,0.4); }
+        .status-Heavy  { color: #fb923c; text-shadow: 0 0 20px rgba(251,146,60,0.4); }
+        .status-Severe { color: #f87171; text-shadow: 0 0 20px rgba(248,113,113,0.4); }
 
-        .progress { height: 12px; border-radius: 10px; background-color: rgba(255,255,255,0.1); overflow: hidden;}
-        .progress-bar { background: linear-gradient(90deg, #38bdf8, #818cf8); border-radius: 10px;}
+        .progress { height: 12px; border-radius: 10px; background-color: rgba(255,255,255,0.1); overflow: hidden; }
+        .progress-bar { background: linear-gradient(90deg, #38bdf8, #818cf8); border-radius: 10px; }
         
         .recommendation-box { 
-            background: rgba(0, 0, 0, 0.3); 
-            border: 1px solid rgba(56, 189, 248, 0.3); 
+            background: rgba(0,0,0,0.3); 
+            border: 1px solid rgba(56,189,248,0.3); 
             border-left: 4px solid #38bdf8;
             border-radius: 16px; 
             box-shadow: 0 10px 30px rgba(0,0,0,0.2);
         }
-        .recommendation-text { font-size: 1.15rem; font-weight: 500; line-height: 1.6; color: #f8fafc; }
+        .recommendation-text { font-size: 1rem; font-weight: 500; line-height: 1.6; color: #f8fafc; }
 
         .btn-back {
             background: linear-gradient(135deg, #4f46e5 0%, #3730a3 100%); 
-            border: none;
-            color: #ffffff !important;
-            font-weight: 600;
-            font-size: 1.1rem;
-            letter-spacing: 0.5px;
-            box-shadow: 0 10px 20px rgba(79, 70, 229, 0.4);
-            transition: all 0.3s ease;
+            border: none; color: #ffffff !important; font-weight: 600;
+            font-size: 1.1rem; letter-spacing: 0.5px;
+            box-shadow: 0 10px 20px rgba(79,70,229,0.4); transition: all 0.3s ease;
         }
         .btn-back:hover {
             transform: translateY(-3px);
-            box-shadow: 0 15px 25px rgba(79, 70, 229, 0.6);
+            box-shadow: 0 15px 25px rgba(79,70,229,0.6);
             background: linear-gradient(135deg, #6366f1 0%, #4338ca 100%); 
         }
 
-        /* NEW: ETA BADGE STYLING */
         .eta-badge {
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 16px;
-            padding: 15px 20px;
-            display: flex;
-            align-items: center;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 16px; padding: 15px 20px;
+            display: flex; align-items: center;
         }
+
+        /* DEPARTURE WINDOWS */
+        .departure-box {
+            background: rgba(0,0,0,0.3);
+            border: 1px solid rgba(56,189,248,0.3);
+            border-left: 4px solid #38bdf8;
+            border-radius: 16px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+        .window-row {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 8px 12px; border-radius: 10px; margin-bottom: 6px;
+        }
+        .window-row .time-label {
+            font-size: 0.82rem; font-weight: 600; color: #e2e8f0; letter-spacing: 0.3px;
+        }
+        .window-row .status-badge {
+            font-size: 0.75rem; font-weight: 700; padding: 3px 10px;
+            border-radius: 20px; white-space: nowrap;
+        }
+        .window-row .now-tag {
+            font-size: 0.7rem; color: #38bdf8; font-weight: 700;
+            margin-left: 6px; animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+        .w-clear   { background: rgba(16,185,129,0.15); border-left: 3px solid #10b981; }
+        .w-moderate{ background: rgba(245,158,11,0.15);  border-left: 3px solid #f59e0b; }
+        .w-heavy   { background: rgba(249,115,22,0.15);  border-left: 3px solid #f97316; }
+        .w-severe  { background: rgba(239,68,68,0.15);   border-left: 3px solid #ef4444; }
+
+        .badge-clear   { background: #10b981; color: #fff; }
+        .badge-moderate{ background: #f59e0b; color: #000; }
+        .badge-heavy   { background: #f97316; color: #fff; }
+        .badge-severe  { background: #ef4444; color: #fff; }
     </style>
 </head>
 <body>
@@ -81,31 +109,29 @@
             <div class="result-card p-0">
                 <div class="row g-0">
                     
-                    <!-- Left Side: Data & Results -->
-                    <div class="col-lg-5 p-5 d-flex flex-column justify-content-center">
+                    <!-- Left Side -->
+                    <div class="col-lg-5 p-4 d-flex flex-column justify-content-start" style="overflow-y: auto; max-height: 100vh;">
                         
-                        <div>
-                            <a href="{% url 'predict_traffic' %}" class="btn btn-back rounded-pill px-4 py-3 mb-4 d-inline-flex align-items-center w-100 justify-content-center text-uppercase">
+                        <div class="mb-3">
+                            <a href="{% url 'predict_traffic' %}" class="btn btn-back rounded-pill px-4 py-3 d-inline-flex align-items-center w-100 justify-content-center text-uppercase">
                                 <i class="fas fa-search-location me-3 fs-5"></i> Check Another Location
                             </a>
                         </div>
                         
-                        <p class="text-uppercase fw-bold small mb-2 tracking-wide" style="color: #94a3b8;">AI Prediction Result</p>
-                        <h1 class="display-4 fw-bold mb-4 d-inline-block status-{{ prediction }}">
-                            {{ prediction }}
-                        </h1>
+                        <p class="text-uppercase fw-bold small mb-1" style="color: #94a3b8;">AI Prediction Result</p>
+                        <h1 class="display-4 fw-bold mb-3 d-inline-block status-{{ prediction }}">{{ prediction }}</h1>
 
-                        <!-- NEW: LIVE ETA DASHBOARD WIDGET -->
-                        <div class="eta-badge mb-4">
+                        <!-- ETA -->
+                        <div class="eta-badge mb-3">
                             <i class="fas fa-stopwatch fs-1 text-warning me-4"></i>
                             <div>
-                                <p class="mb-0 text-muted small text-uppercase fw-bold tracking-wide">Live Estimated Time</p>
+                                <p class="mb-0 text-muted small text-uppercase fw-bold">Live Estimated Time</p>
                                 <h3 class="mb-0 fw-bold text-white">{{ eta }}</h3>
                             </div>
                         </div>
 
-                        <!-- Confidence Bar -->
-                        <div class="mb-4">
+                        <!-- Confidence -->
+                        <div class="mb-3">
                             <div class="d-flex justify-content-between mb-2">
                                 <span class="fw-medium text-light small">AI Confidence Level</span>
                                 <span class="fw-bold small" style="color: #38bdf8;">{{ confidence }}%</span>
@@ -115,26 +141,59 @@
                             </div>
                         </div>
 
-                        <!-- Recommendation Area -->
-                        <div class="recommendation-box p-4 mt-2">
-                            <h5 class="fw-bold mb-3" style="color: #38bdf8;">
+                        <!-- Smart Advice -->
+                        <div class="recommendation-box p-3 mb-3">
+                            <h6 class="fw-bold mb-2" style="color: #38bdf8;">
                                 <i class="fas fa-robot me-2"></i> Smart Advice
-                            </h5>
+                            </h6>
                             <p class="mb-0 recommendation-text">
                                 {% if prediction == "Clear" %}
-                                    Roads are exceptionally clear. It's a great time to hit the road and enjoy a smooth drive!
+                                    Roads are clear right now. Great time to leave!
                                 {% elif prediction == "Moderate" %}
-                                    Standard traffic volume. You'll hit a few slow patches, but nothing out of the ordinary for Nairobi.
+                                    Some slowdowns expected. Allow a little extra time.
                                 {% elif prediction == "Heavy" %}
-                                    Significant slowdowns detected! Leave early or look at the grey alternative routes on the map.
+                                    Significant delays detected! Consider leaving early or using an alternative route shown on the map.
                                 {% else %}
-                                    <strong>Severe Gridlock.</strong> Avoid this route right now if possible, or heavily consider taking the Expressway to bypass the mess.
+                                    Severe gridlock. Avoid this route if possible or take the Expressway.
                                 {% endif %}
                             </p>
                         </div>
+
+                        <!-- BEST TIME TO LEAVE -->
+                        {% if departure_windows %}
+                        <div class="departure-box p-3">
+                            <h6 class="fw-bold mb-3" style="color: #38bdf8;">
+                                <i class="fas fa-clock me-2"></i> Best Time To Leave Today
+                            </h6>
+                            {% for window in departure_windows %}
+                                {% if window.level == 0 %}
+                                    <div class="window-row w-clear">
+                                {% elif window.level == 1 %}
+                                    <div class="window-row w-moderate">
+                                {% elif window.level == 2 %}
+                                    <div class="window-row w-heavy">
+                                {% else %}
+                                    <div class="window-row w-severe">
+                                {% endif %}
+                                    <span class="time-label">
+                                        {{ window.icon }} {{ window.range }}
+                                        {% if window.is_now %}<span class="now-tag">← you are here</span>{% endif %}
+                                    </span>
+                                    <span class="status-badge
+                                        {% if window.level == 0 %}badge-clear
+                                        {% elif window.level == 1 %}badge-moderate
+                                        {% elif window.level == 2 %}badge-heavy
+                                        {% else %}badge-severe{% endif %}">
+                                        {{ window.label }}
+                                    </span>
+                                </div>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+
                     </div>
 
-                    <!-- Right Side: The Map -->
+                    <!-- Right Side: Map -->
                     <div class="col-lg-7 map-container-bg border-start border-secondary border-opacity-25">
                         <div class="map-wrapper">
                             {{ map_html|safe }}
