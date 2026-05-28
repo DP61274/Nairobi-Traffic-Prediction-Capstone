@@ -34,11 +34,13 @@ class SmsParseError(ValueError):
 
 def onboarding_message():
     return (
-        "Welcome to Nairobi Traffic Predictor.\n"
+        "Nairobi Traffic Predictor\n"
+        "Reply with your route:\n"
         "NOW: FROM*TO*NOW\n"
+        "e.g. nacico*cbd*now\n"
         "PLAN: FROM*TO*DAY*HOUR*WEATHER\n"
-        "Flags: *SCHOOL *TOLL\n"
-        "Ex: Westlands*JKIA*NOW*TOLL"
+        "e.g. westlands*cbd*MONDAY*8*DRY\n"
+        "Extras: *SCHOOL or *TOLL"
     )
 
 
