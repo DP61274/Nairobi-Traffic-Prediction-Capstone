@@ -1,8 +1,9 @@
 import json
+import logging
 import os
 
 import requests
-from django.http import HttpResponse, JsonResponse
+from django.http import JsonResponse
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
@@ -10,6 +11,8 @@ from django.views.decorators.http import require_POST
 from .services import GOOGLE_API_KEY, WEATHER_OPTIONS, normalize_location, predict_route
 from .sms import SmsParseError, format_prediction_sms, onboarding_message, parse_sms_request
 
+
+logger = logging.getLogger(__name__)
 
 VALID_DAYS = {str(day) for day in range(7)}
 VALID_HOURS = {str(hour) for hour in range(24)}
@@ -193,6 +196,28 @@ def _sms_link_id(request):
     return request.POST.get('linkId') or request.POST.get('link_id') or ''
 
 
+def _sms_shortcode(request):
+    if request.content_type and 'application/json' in request.content_type:
+        try:
+            payload = json.loads(request.body.decode('utf-8') or '{}')
+        except json.JSONDecodeError:
+            payload = {}
+        return payload.get('to') or payload.get('shortCode') or payload.get('shortcode') or ''
+
+    return request.POST.get('to') or request.POST.get('shortCode') or request.POST.get('shortcode') or ''
+
+
+def _sms_keyword(request):
+    if request.content_type and 'application/json' in request.content_type:
+        try:
+            payload = json.loads(request.body.decode('utf-8') or '{}')
+        except json.JSONDecodeError:
+            payload = {}
+        return payload.get('keyword') or ''
+
+    return request.POST.get('keyword') or ''
+
+
 def _sms_reply_payload(phone_number, message, link_id=None):
     payload = {
         'username': AT_USERNAME,
@@ -219,12 +244,29 @@ def _sms_reply_payload(phone_number, message, link_id=None):
 
 def _send_sms_reply(phone_number, message, link_id=None):
     if not AT_API_KEY or not phone_number:
+        logger.warning(
+            "[AT SMS] Skipping outbound reply. api_key_present=%s phone_present=%s",
+            bool(AT_API_KEY),
+            bool(phone_number),
+        )
         return False
+
+    payload = _sms_reply_payload(phone_number, message, link_id)
+    logger.info(
+        "[AT SMS] Sending %s reply endpoint=%s payload_keys=%s to=%s shortcode=%s keyword=%s linkId_present=%s",
+        AT_SMS_MODE,
+        AT_SMS_API_URL,
+        sorted(payload.keys()),
+        phone_number,
+        payload.get('from', ''),
+        payload.get('keyword', ''),
+        bool(payload.get('linkId')),
+    )
 
     try:
         response = requests.post(
             AT_SMS_API_URL,
-            data=_sms_reply_payload(phone_number, message, link_id),
+            data=payload,
             headers={
                 'apiKey': AT_API_KEY,
                 'Accept': 'application/json',
@@ -232,8 +274,18 @@ def _send_sms_reply(phone_number, message, link_id=None):
             },
             timeout=8,
         )
-        return response.status_code < 400
+        logger.info("[AT SMS] Response status=%s", response.status_code)
+        logger.info("[AT SMS] Response body=%s", response.text)
+        if response.status_code >= 400:
+            logger.error(
+                "[AT SMS] Outbound reply failed status=%s body=%s",
+                response.status_code,
+                response.text,
+            )
+            return False
+        return True
     except Exception:
+        logger.exception("[AT SMS] Exception while sending outbound reply")
         return False
 
 
@@ -243,9 +295,23 @@ def africastalking_sms_webhook(request):
     incoming_text = _sms_text(request)
     sender = _sms_sender(request)
     link_id = _sms_link_id(request)
+    shortcode = _sms_shortcode(request)
+    inbound_keyword = _sms_keyword(request)
+    parsed_type = 'unknown'
+
+    logger.info(
+        "[AT SMS] Incoming message from=%s shortcode=%s keyword=%s linkId=%s text=%s",
+        sender,
+        shortcode,
+        inbound_keyword,
+        link_id,
+        incoming_text,
+    )
 
     try:
         parsed = parse_sms_request(incoming_text, keyword=AT_SMS_KEYWORD)
+        parsed_type = parsed.get('type', 'unknown')
+        logger.info("[AT SMS] Parsed request type=%s parsed=%s", parsed_type, parsed)
         if parsed['type'] == 'help':
             reply = onboarding_message()
         else:
@@ -270,8 +336,15 @@ def africastalking_sms_webhook(request):
                     reply = format_prediction_sms(result)
     except SmsParseError as e:
         reply = str(e)
+        logger.warning("[AT SMS] SMS parse error: %s", e)
     except Exception:
         reply = "Sorry, traffic prediction failed. Please try again later."
+        logger.exception("[AT SMS] Exception while processing inbound SMS")
 
-    _send_sms_reply(sender, reply, link_id)
-    return HttpResponse(reply, content_type='text/plain')
+    sent = _send_sms_reply(sender, reply, link_id)
+    logger.info(
+        "[AT SMS] Webhook complete parsed_type=%s reply_sent=%s",
+        parsed_type,
+        sent,
+    )
+    return JsonResponse({'status': 'received'})
