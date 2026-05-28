@@ -191,9 +191,9 @@ def _sms_link_id(request):
             payload = json.loads(request.body.decode('utf-8') or '{}')
         except json.JSONDecodeError:
             payload = {}
-        return payload.get('linkId') or payload.get('link_id') or ''
+        return (payload.get('linkId') or payload.get('link_id') or '').strip()
 
-    return request.POST.get('linkId') or request.POST.get('link_id') or ''
+    return (request.POST.get('linkId') or request.POST.get('link_id') or '').strip()
 
 
 def _sms_shortcode(request):
@@ -229,6 +229,9 @@ def _sms_reply_payload(phone_number, message, link_id=None):
         # Legacy mode is useful for simple sandbox/bulk-style testing.
         # The official live API URL accepts sandbox credentials.
         payload['bulkSMSMode'] = 1
+        payload['from'] = AT_SHORTCODE
+        if link_id:
+            payload['linkId'] = link_id
         return payload
 
     # Premium mode is the default for shortcode + keyword two-way SMS.
