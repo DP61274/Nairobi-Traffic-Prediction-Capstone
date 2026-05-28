@@ -1,9 +1,9 @@
 import datetime
+import logging
 import os
+import threading
 
 import folium
-import joblib
-import pandas as pd
 import polyline
 import requests
 from django.conf import settings
@@ -15,13 +15,10 @@ load_dotenv()
 MODEL_PATH = os.path.join(settings.BASE_DIR, 'traffic_model.pkl')
 SCALER_PATH = os.path.join(settings.BASE_DIR, 'scaler.pkl')
 
-try:
-    model = joblib.load(MODEL_PATH)
-    scaler = joblib.load(SCALER_PATH)
-except Exception as e:
-    print(f"Model Loading Error: {e}")
-    model = None
-    scaler = None
+logger = logging.getLogger(__name__)
+_model = None
+_scaler = None
+_model_lock = threading.Lock()
 
 GOOGLE_API_KEY = os.getenv('GOOGLE_MAPS_API_KEY', '')
 OPENWEATHER_API_KEY = os.getenv('OPENWEATHER_API_KEY', '')
@@ -33,6 +30,29 @@ WEATHER_OPTIONS = {
     '5.0': 'Light Rain',
     '15.0': 'Heavy Downpour',
 }
+
+
+def get_model():
+    global _model
+    if _model is None:
+        with _model_lock:
+            if _model is None:
+                logger.warning("Loading ML model into memory...")
+                import joblib
+
+                _model = joblib.load(MODEL_PATH)
+    return _model
+
+
+def get_scaler():
+    global _scaler
+    if _scaler is None:
+        with _model_lock:
+            if _scaler is None:
+                import joblib
+
+                _scaler = joblib.load(SCALER_PATH)
+    return _scaler
 
 
 def get_smart_advice(prediction):
@@ -212,8 +232,8 @@ def _build_map(from_lat, from_lon, to_lat, to_lon, prediction_text, line_color, 
 
 
 def predict_route(params, include_map=True):
-    if model is None or scaler is None:
-        raise RuntimeError("Traffic model is not available.")
+    model = get_model()
+    scaler = get_scaler()
 
     from_lat = float(params.get('from_lat', -1.279))
     from_lon = float(params.get('from_lon', 36.817))
@@ -253,6 +273,8 @@ def predict_route(params, include_map=True):
         'avg_rain_mm': rain_mm,
         'avg_temp_c': temp_c,
     }
+
+    import pandas as pd
 
     input_df = pd.DataFrame([data])
     scaled_data = scaler.transform(input_df)

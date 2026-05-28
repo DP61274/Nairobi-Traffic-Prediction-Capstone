@@ -19,17 +19,17 @@ VALID_HOURS = {str(hour) for hour in range(24)}
 
 # Sandbox defaults. For a live hackathon shortcode, change these environment
 # variables only; the webhook and parser do not assume production values.
-AT_USERNAME = os.getenv('AT_USERNAME', 'sandbox')
-AT_API_KEY = os.getenv('AT_API_KEY', '')
-AT_SHORTCODE = os.getenv('AT_SHORTCODE', '61274')
-AT_SMS_KEYWORD = os.getenv('AT_SMS_KEYWORD', 'TRAFFIC')
-AT_SMS_MODE = os.getenv('AT_SMS_MODE', 'premium').lower()
+AT_USERNAME = os.getenv('AT_USERNAME', 'sandbox').strip()
+AT_API_KEY = os.getenv('AT_API_KEY', '').strip()
+AT_SHORTCODE = os.getenv('AT_SHORTCODE', '61274').strip()
+AT_SMS_KEYWORD = os.getenv('AT_SMS_KEYWORD', 'TRAFFIC').strip()
+AT_SMS_MODE = os.getenv('AT_SMS_MODE', 'premium').strip().lower()
 DEFAULT_PREMIUM_SMS_URL = 'https://content.africastalking.com/version1/messaging'
 DEFAULT_LEGACY_SMS_URL = 'https://api.africastalking.com/version1/messaging'
 AT_SMS_API_URL = os.getenv(
     'AT_SMS_API_URL',
     DEFAULT_LEGACY_SMS_URL if AT_SMS_MODE == 'legacy' else DEFAULT_PREMIUM_SMS_URL,
-)
+).strip()
 
 
 def _form_params(post_data):
@@ -252,7 +252,15 @@ def _send_sms_reply(phone_number, message, link_id=None):
         return False
 
     payload = _sms_reply_payload(phone_number, message, link_id)
-    logger.info(
+    logger.warning(
+        "[AT SMS] Outbound auth/config endpoint=%s username=%s mode=%s api_key_present=%s payload_keys=%s",
+        AT_SMS_API_URL,
+        AT_USERNAME,
+        AT_SMS_MODE,
+        bool(AT_API_KEY),
+        sorted(payload.keys()),
+    )
+    logger.warning(
         "[AT SMS] Sending %s reply endpoint=%s payload_keys=%s to=%s shortcode=%s keyword=%s linkId_present=%s",
         AT_SMS_MODE,
         AT_SMS_API_URL,
@@ -274,8 +282,8 @@ def _send_sms_reply(phone_number, message, link_id=None):
             },
             timeout=8,
         )
-        logger.info("[AT SMS] Response status=%s", response.status_code)
-        logger.info("[AT SMS] Response body=%s", response.text)
+        logger.warning("[AT SMS] Response status=%s", response.status_code)
+        logger.warning("[AT SMS] Response body=%s", response.text)
         if response.status_code >= 400:
             logger.error(
                 "[AT SMS] Outbound reply failed status=%s body=%s",
@@ -299,7 +307,7 @@ def africastalking_sms_webhook(request):
     inbound_keyword = _sms_keyword(request)
     parsed_type = 'unknown'
 
-    logger.info(
+    logger.warning(
         "[AT SMS] Incoming message from=%s shortcode=%s keyword=%s linkId=%s text=%s",
         sender,
         shortcode,
@@ -311,7 +319,7 @@ def africastalking_sms_webhook(request):
     try:
         parsed = parse_sms_request(incoming_text, keyword=AT_SMS_KEYWORD)
         parsed_type = parsed.get('type', 'unknown')
-        logger.info("[AT SMS] Parsed request type=%s parsed=%s", parsed_type, parsed)
+        logger.warning("[AT SMS] Parsed request type=%s parsed=%s", parsed_type, parsed)
         if parsed['type'] == 'help':
             reply = onboarding_message()
         else:
@@ -342,7 +350,7 @@ def africastalking_sms_webhook(request):
         logger.exception("[AT SMS] Exception while processing inbound SMS")
 
     sent = _send_sms_reply(sender, reply, link_id)
-    logger.info(
+    logger.warning(
         "[AT SMS] Webhook complete parsed_type=%s reply_sent=%s",
         parsed_type,
         sent,
