@@ -300,7 +300,7 @@ def predict_traffic(request):
                         alt_coords = polyline.decode(alt_route['overview_polyline']['points'])
                         folium.PolyLine(
                             alt_coords,
-                            color='#64748b', # Faded Grey
+                            color='#a78bfa', # Purple - visible on any map
                             weight=5,
                             opacity=0.6,
                             dash_array='10', # Dashed line style
