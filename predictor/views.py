@@ -5,12 +5,97 @@ import folium
 import requests
 import polyline
 import datetime
+import africastalking
 from dotenv import load_dotenv
 from django.shortcuts import render
 from django.conf import settings
 
 # 1. LOAD Environment Variables
 load_dotenv()
+
+# Africa's Talking setup
+AT_USERNAME = os.getenv('AT_USERNAME', 'sandbox')
+AT_API_KEY = os.getenv('AT_API_KEY', '')
+
+def send_traffic_sms(phone, name, route_name, windows):
+    try:
+        import requests as req
+        
+        best = next((w for w in windows if w['level'] == 0), None)
+        worst = [w for w in windows if w['level'] >= 2]
+        
+        message = f"Hi {name}! 🚦 SmartTraffic AI Update\n"
+        message += f"Route: {route_name}\n"
+        if best:
+            message += f"✅ Best time: {best['range']}\n"
+        if worst:
+            message += f"🔴 Avoid: {worst[0]['range']} ({worst[0]['label']})\n"
+        message += "Powered by Nairobi SmartTraffic AI"
+
+        response = req.post(
+            'https://api.sandbox.africastalking.com/version1/messaging',
+            headers={
+                'Accept': 'application/json',
+                'apiKey': AT_API_KEY,
+                'Content-Type': 'application/x-www-form-urlencoded'
+            },
+            data={
+                'username': AT_USERNAME,
+                'to': phone,
+                'message': message
+            },
+            verify=False  # bypasses SSL issue on Windows
+        )
+        print(f"SMS Response: {response.text}")
+        return True
+    except Exception as e:
+        print(f"SMS Error: {e}")
+        return False
+
+def subscribe(request):
+    from .models import Subscriber
+    if request.method == 'POST':
+        name = request.POST.get('name', '').strip()
+        phone = request.POST.get('phone', '').strip()
+        route = request.POST.get('route', '').strip()
+        
+        if name and phone and route:
+            # Save subscriber
+            sub, created = Subscriber.objects.get_or_create(
+                phone=phone,
+                defaults={'name': name, 'route': route}
+            )
+            
+            # Route coordinates for prediction
+            route_coords = {
+                'thika':   {'to_lat': -1.0332, 'to_lon': 37.0693, 'name': 'Thika Road'},
+                'mombasa': {'to_lat': -1.3192, 'to_lon': 36.8275, 'name': 'Mombasa Road'},
+                'waiyaki': {'to_lat': -1.2676, 'to_lon': 36.7615, 'name': 'Waiyaki Way'},
+                'ngong':   {'to_lat': -1.3548, 'to_lon': 36.7517, 'name': 'Ngong Road'},
+                'langata': {'to_lat': -1.3317, 'to_lon': 36.7477, 'name': "Lang'ata Road"},
+            }
+            
+            coords = route_coords.get(route, route_coords['thika'])
+            now = datetime.datetime.now()
+            
+            # Generate windows for their route
+            windows = get_departure_windows(
+                -1.279, 36.817,
+                coords['to_lat'], coords['to_lon'],
+                now.weekday(), 0, 0.0, 22.0, 5,
+                current_hour=now.hour
+            )
+            
+            print(f"Using key: {AT_API_KEY[:20]}...")
+            # Send welcome SMS immediately
+            send_traffic_sms(phone, name, coords['name'], windows)
+            
+            return render(request, 'predictor/index.html', {
+                'google_key': GOOGLE_API_KEY,
+                'success': f"✅ Subscribed! Check your phone {phone} for your first traffic update."
+            })
+    
+    return render(request, 'predictor/index.html', {'google_key': GOOGLE_API_KEY})
 
 # 2. LOAD trained model and scaler
 MODEL_PATH = os.path.join(settings.BASE_DIR, 'traffic_model.pkl')
@@ -25,6 +110,61 @@ except Exception as e:
 # 3. API KEYS
 GOOGLE_API_KEY = os.getenv('GOOGLE_MAPS_API_KEY', '')
 OPENWEATHER_API_KEY = os.getenv('OPENWEATHER_API_KEY', '')
+
+def get_departure_windows(from_lat, from_lon, to_lat, to_lon, day, school_impact, rain_mm, temp_c, matatu_stop_count, current_hour):
+    windows = []
+    labels = {0: 'Clear', 1: 'Moderate', 2: 'Heavy', 3: 'Severe'}
+    icons = {0: '✅', 1: '⚠️', 2: '🔴', 3: '🚨'}
+    
+    check_hours = [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+    
+    for h in check_hours:
+        is_weekend = 1 if day >= 5 else 0
+        is_peak = 1 if h in [7, 8, 9, 16, 17, 18, 19] else 0
+        data = {
+            'from_lat': from_lat, 'from_lon': from_lon,
+            'to_lat': to_lat, 'to_lon': to_lon,
+            'matatu_stop_count': matatu_stop_count,
+            'is_inbound': 1, 'hour': h,
+            'day_of_week_enc': day,
+            'is_weekend': is_weekend,
+            'is_peak_hour': is_peak,
+            'school_impact': school_impact,
+            'avg_rain_mm': rain_mm,
+            'avg_temp_c': temp_c
+        }
+        input_df = pd.DataFrame([data])
+        scaled = pd.DataFrame(scaler.transform(input_df), columns=input_df.columns)
+        pred = model.predict(scaled)[0]
+        windows.append({
+            'hour': h,
+            'label': labels[pred],
+            'icon': icons[pred],
+            'level': int(pred)
+        })
+    
+    # Group consecutive same-level hours into ranges
+    grouped = []
+    i = 0
+    while i < len(windows):
+        start = windows[i]['hour']
+        level = windows[i]['level']
+        label = windows[i]['label']
+        icon = windows[i]['icon']
+        j = i
+        while j < len(windows) and windows[j]['level'] == level:
+            j += 1
+        end = windows[j-1]['hour'] + 1
+        grouped.append({
+            'range': f"{start}:00 - {end}:00",
+            'label': label,
+            'icon': icon,
+            'level': level,
+            'is_now': start <= current_hour < end  # ← detects if you are in this window
+        })
+        i = j
+    
+    return grouped
 
 def predict_traffic(request):
     if request.method == 'POST':
@@ -160,7 +300,7 @@ def predict_traffic(request):
                         alt_coords = polyline.decode(alt_route['overview_polyline']['points'])
                         folium.PolyLine(
                             alt_coords,
-                            color='#64748b', # Faded Grey
+                            color='#a78bfa', # Purple - visible on any map
                             weight=5,
                             opacity=0.6,
                             dash_array='10', # Dashed line style
@@ -187,13 +327,21 @@ def predict_traffic(request):
 
             map_html = m.get_root().render()
 
+            departure_windows = get_departure_windows(
+                from_lat, from_lon, to_lat, to_lon,
+                day, school_impact, rain_mm, temp_c, matatu_stop_count,
+                current_hour=datetime.datetime.now().hour if timing_mode == 'now' else hour
+            )
+
             # --- RENDER RESULTS ---
             return render(request, 'predictor/result.html', {
                 'prediction': prediction_text,
                 'confidence': round(confidence_score, 1),
-                'eta': eta_text, # SENDING ETA TO HTML
+                'eta': eta_text,
                 'map_html': map_html,
-                'google_key': GOOGLE_API_KEY 
+                'google_key': GOOGLE_API_KEY,
+                'departure_windows': departure_windows,  # ADD THIS
+                'current_hour': datetime.datetime.now().hour if timing_mode == 'now' else hour,  # ADD THIS
             })
 
         except Exception as e:

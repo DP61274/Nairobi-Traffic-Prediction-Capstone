@@ -201,6 +201,16 @@
                         Predict Commute <i class="fas fa-arrow-right ms-2"></i>
                     </button>
                 </form>
+
+                <!-- SUBSCRIPTION SECTION -->
+<div class="mt-4 pt-4" style="border-top: 1px solid rgba(255,255,255,0.1);">
+    <button type="button" class="btn w-100 py-3 fw-bold rounded-3" 
+        style="background: rgba(56,189,248,0.1); border: 1px solid rgba(56,189,248,0.3); color: #38bdf8;"
+        data-bs-toggle="modal" data-bs-target="#subscribeModal">
+        <i class="fas fa-bell me-2"></i> Get SMS Traffic Alerts For Your Route
+    </button>
+</div>
+
             </div>
         </div>
     </div>
@@ -254,5 +264,58 @@
         document.getElementById('manual-day').value = now.getDay() === 0 ? 6 : now.getDay() - 1;
     };
 </script>
+
+<!-- SUBSCRIBE MODAL -->
+<div class="modal fade" id="subscribeModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content" style="background: #0f172a; border: 1px solid rgba(255,255,255,0.1); border-radius: 20px;">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="modal-title fw-bold text-white">
+                    <i class="fas fa-bell me-2" style="color:#38bdf8"></i> Subscribe to Traffic Alerts
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body pt-3">
+                <p class="text-muted small mb-4">Get a personalized SMS update before peak hours with the best time to leave for your route.</p>
+                
+                {% if success %}
+                <div class="alert rounded-3" style="background: rgba(16,185,129,0.15); border: 1px solid #10b981; color: #10b981;">
+                    {{ success }}
+                </div>
+                {% endif %}
+
+                <form method="POST" action="{% url 'subscribe' %}">
+                    {% csrf_token %}
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-muted text-uppercase">Your Name</label>
+                        <input type="text" name="name" class="form-control" placeholder="e.g. Faith" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-muted text-uppercase">Phone Number</label>
+                        <input type="text" name="phone" class="form-control" placeholder="+254712345678" required>
+                    </div>
+                    <div class="mb-4">
+                        <label class="form-label small fw-bold text-muted text-uppercase">Your Usual Route</label>
+                        <select name="route" class="form-select" required>
+                            <option value="">Select your route...</option>
+                            <option value="thika">Thika Road</option>
+                            <option value="mombasa">Mombasa Road</option>
+                            <option value="waiyaki">Waiyaki Way</option>
+                            <option value="ngong">Ngong Road</option>
+                            <option value="langata">Lang'ata Road</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="btn w-100 py-3 fw-bold rounded-3 text-white"
+                        style="background: linear-gradient(135deg, #10b981, #059669); border: none;">
+                        <i class="fas fa-paper-plane me-2"></i> Subscribe & Get First Alert Now
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
 </body>
 </html>
