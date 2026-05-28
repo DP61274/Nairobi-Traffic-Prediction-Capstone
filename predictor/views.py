@@ -20,7 +20,13 @@ AT_USERNAME = os.getenv('AT_USERNAME', 'sandbox')
 AT_API_KEY = os.getenv('AT_API_KEY', '')
 AT_SHORTCODE = os.getenv('AT_SHORTCODE', '61274')
 AT_SMS_KEYWORD = os.getenv('AT_SMS_KEYWORD', 'TRAFFIC')
-AT_SMS_API_URL = os.getenv('AT_SMS_API_URL', 'https://api.sandbox.africastalking.com/version1/messaging')
+AT_SMS_MODE = os.getenv('AT_SMS_MODE', 'premium').lower()
+DEFAULT_PREMIUM_SMS_URL = 'https://content.africastalking.com/version1/messaging'
+DEFAULT_LEGACY_SMS_URL = 'https://api.africastalking.com/version1/messaging'
+AT_SMS_API_URL = os.getenv(
+    'AT_SMS_API_URL',
+    DEFAULT_LEGACY_SMS_URL if AT_SMS_MODE == 'legacy' else DEFAULT_PREMIUM_SMS_URL,
+)
 
 
 def _form_params(post_data):
@@ -176,22 +182,53 @@ def _sms_sender(request):
     return request.POST.get('from') or request.POST.get('phoneNumber') or ''
 
 
-def _send_sms_reply(phone_number, message):
+def _sms_link_id(request):
+    if request.content_type and 'application/json' in request.content_type:
+        try:
+            payload = json.loads(request.body.decode('utf-8') or '{}')
+        except json.JSONDecodeError:
+            payload = {}
+        return payload.get('linkId') or payload.get('link_id') or ''
+
+    return request.POST.get('linkId') or request.POST.get('link_id') or ''
+
+
+def _sms_reply_payload(phone_number, message, link_id=None):
+    payload = {
+        'username': AT_USERNAME,
+        'to': phone_number,
+        'message': message,
+    }
+
+    if AT_SMS_MODE == 'legacy':
+        # Legacy mode is useful for simple sandbox/bulk-style testing.
+        # The official live API URL accepts sandbox credentials.
+        payload['bulkSMSMode'] = 1
+        return payload
+
+    # Premium mode is the default for shortcode + keyword two-way SMS.
+    payload.update({
+        'from': AT_SHORTCODE,
+        'keyword': AT_SMS_KEYWORD,
+        'bulkSMSMode': 0,
+    })
+    if link_id:
+        payload['linkId'] = link_id
+    return payload
+
+
+def _send_sms_reply(phone_number, message, link_id=None):
     if not AT_API_KEY or not phone_number:
         return False
 
     try:
         response = requests.post(
             AT_SMS_API_URL,
-            data={
-                'username': AT_USERNAME,
-                'to': phone_number,
-                'message': message,
-                'from': AT_SHORTCODE,
-            },
+            data=_sms_reply_payload(phone_number, message, link_id),
             headers={
                 'apiKey': AT_API_KEY,
                 'Accept': 'application/json',
+                'Content-Type': 'application/x-www-form-urlencoded',
             },
             timeout=8,
         )
@@ -205,6 +242,7 @@ def _send_sms_reply(phone_number, message):
 def africastalking_sms_webhook(request):
     incoming_text = _sms_text(request)
     sender = _sms_sender(request)
+    link_id = _sms_link_id(request)
 
     try:
         parsed = parse_sms_request(incoming_text, keyword=AT_SMS_KEYWORD)
@@ -235,5 +273,5 @@ def africastalking_sms_webhook(request):
     except Exception:
         reply = "Sorry, traffic prediction failed. Please try again later."
 
-    _send_sms_reply(sender, reply)
+    _send_sms_reply(sender, reply, link_id)
     return HttpResponse(reply, content_type='text/plain')

@@ -13,7 +13,9 @@ services:
         value: "61274"
       - key: AT_SMS_KEYWORD
         value: TRAFFIC
+      - key: AT_SMS_MODE
+        value: premium
       - key: AT_SMS_API_URL
-        value: https://api.sandbox.africastalking.com/version1/messaging
+        value: https://content.africastalking.com/version1/messaging
       - key: AT_API_KEY
         sync: false

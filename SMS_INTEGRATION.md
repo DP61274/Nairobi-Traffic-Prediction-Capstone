@@ -1,16 +1,36 @@
-# Africa's Talking SMS Sandbox
+# Africa's Talking SMS Integration
 
-Phase 2 adds a lightweight SMS transport layer over the same prediction engine used by the web form and chatbot.
+Phase 2 adds SMS as a lightweight transport layer over the same backend used by the web form and chatbot:
 
-## Sandbox Defaults
+```text
+SMS -> webhook -> parser -> normalize_location(...) -> predict_route(...) -> SMS formatter
+```
+
+The SMS layer does not duplicate geocoding, ML inference, ETA lookup, confidence scoring, or advice generation.
+
+## Sandbox Shortcode Defaults
+
+Use these values for Africa's Talking Sandbox shortcode testing:
 
 ```env
 AT_USERNAME=sandbox
+AT_API_KEY=your_africastalking_sandbox_api_key
 AT_SHORTCODE=61274
 AT_SMS_KEYWORD=TRAFFIC
-AT_SMS_API_URL=https://api.sandbox.africastalking.com/version1/messaging
-AT_API_KEY=your_africastalking_sandbox_api_key
+AT_SMS_MODE=premium
+AT_SMS_API_URL=https://content.africastalking.com/version1/messaging
 ```
+
+`AT_SMS_MODE=premium` is the default because this project uses shortcode + keyword two-way SMS. Premium replies include `from`, `keyword`, `bulkSMSMode=0`, and `linkId` when Africa's Talking sends one.
+
+For simple legacy sandbox/bulk-style reply testing, use:
+
+```env
+AT_SMS_MODE=legacy
+AT_SMS_API_URL=https://api.africastalking.com/version1/messaging
+```
+
+Do not use `https://api.sandbox.africastalking.com/version1/messaging`; the official live endpoints accept sandbox credentials and route them correctly.
 
 ## Webhook URL
 
@@ -49,16 +69,17 @@ HEAVY RAIN
 
 Short forms `SUNNY`, `LIGHT`, and `HEAVY` are normalized for user convenience.
 
-## Moving To Live
+## Moving To A Live Hackathon Shortcode
 
-To move from Sandbox to a live hackathon shortcode later, update only the Africa's Talking environment variables:
+On hackathon day, change only the Africa's Talking environment values:
 
 ```env
-AT_USERNAME=your_live_username
+AT_USERNAME=your_live_app_username
 AT_API_KEY=your_live_api_key
 AT_SHORTCODE=your_live_shortcode
 AT_SMS_KEYWORD=your_live_keyword
-AT_SMS_API_URL=https://api.africastalking.com/version1/messaging
+AT_SMS_MODE=premium
+AT_SMS_API_URL=https://content.africastalking.com/version1/messaging
 ```
 
-No prediction, geocoding, chatbot, or map code needs to change.
+No prediction, geocoding, chatbot, form, or map code needs to change.
